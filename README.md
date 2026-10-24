@@ -1,3 +1,13 @@
+ RutaSur simula el seguimiento de envíos mediante eventos:
+
+ - Un simulador genera estados: en camino, entregado, fallido, etc.
+ - Kafka distribuye esos eventos a servicios independientes.
+ - Los servicios actualizan MongoDB, generan notificaciones, deciden reprogramaciones y detectan demoras.
+ - Una interfaz web muestra envíos, alertas e indicadores en tiempo real.
+
+ La idea central es que un mismo evento puede activar varias acciones sin acoplar los servicios entre sí. Todo se ejecuta localmente
+ con Docker.
+
 # RutaSur: seguimiento de envíos orientado a eventos
 
 El TP tiene implementadas las ocho etapas: infraestructura, simulador, cinco consumidores base, interfaz con actualizaciones en vivo y el consumidor adicional del cuarto indicador histórico. Incluye pruebas de integración, replay y reconstrucción de vistas. Los puertos publicados se limitan a `127.0.0.1` para uso local.
