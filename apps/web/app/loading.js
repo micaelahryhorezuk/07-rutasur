@@ -1,0 +1,1 @@
+export default function Loading() { return <div className="loading-state" role="status"><div className="skeleton title" /><div className="skeleton cards" /><div className="skeleton content" /><span>Cargando operación…</span></div>; }

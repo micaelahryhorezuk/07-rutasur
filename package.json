@@ -1,0 +1,48 @@
+{
+  "name": "rutasur-event-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "scripts": {
+    "test": "node --test tests/simulator/simulator.test.js tests/projector/projector.test.js tests/business/business.test.js tests/sla-monitor/sla-monitor.test.js tests/web/data.test.js tests/hub-analytics/hub-analytics.test.js",
+    "simulate": "node --env-file-if-exists=.env services/simulator/src/cli.js",
+    "simulate:continuous": "node --env-file-if-exists=.env services/simulator/src/cli.js continuous",
+    "simulate:happy": "node --env-file-if-exists=.env services/simulator/src/cli.js happy",
+    "simulate:absent": "node --env-file-if-exists=.env services/simulator/src/cli.js absent",
+    "simulate:delayed": "node --env-file-if-exists=.env services/simulator/src/cli.js delayed",
+    "simulate:third-failure": "node --env-file-if-exists=.env services/simulator/src/cli.js third-failure",
+    "simulate:burst": "node --env-file-if-exists=.env services/simulator/src/cli.js burst",
+    "simulate:duplicate": "node --env-file-if-exists=.env services/simulator/src/cli.js duplicate",
+    "simulate:out-of-order": "node --env-file-if-exists=.env services/simulator/src/cli.js out-of-order",
+    "simulate:malformed": "node --env-file-if-exists=.env services/simulator/src/cli.js malformed",
+    "verify:kafka": "node --env-file-if-exists=.env scripts/verify-kafka.js",
+    "start:projector": "node --env-file-if-exists=.env services/projector/src/cli.js run",
+    "projector:replay": "node --env-file-if-exists=.env services/projector/src/cli.js replay",
+    "verify:projector": "node --env-file-if-exists=.env scripts/verify-projector.js",
+    "start:notifications": "node --env-file-if-exists=.env services/notifications/src/cli.js",
+    "start:rescheduling": "node --env-file-if-exists=.env services/rescheduling/src/cli.js",
+    "start:analytics": "node --env-file-if-exists=.env services/analytics/src/cli.js",
+    "verify:business": "node --env-file-if-exists=.env scripts/verify-business.js",
+    "start:sla": "node --env-file-if-exists=.env services/sla-monitor/src/cli.js",
+    "verify:sla": "node --env-file-if-exists=.env scripts/verify-sla.js",
+    "web:dev": "node --env-file-if-exists=.env apps/web/node_modules/next/dist/bin/next dev apps/web --hostname 127.0.0.1",
+    "web:build": "npm --prefix apps/web run build",
+    "web:start": "node --env-file-if-exists=.env apps/web/node_modules/next/dist/bin/next start apps/web --hostname 127.0.0.1",
+    "start:simulator-control": "node --env-file-if-exists=.env services/simulator/src/control.js",
+    "verify:web": "node --env-file-if-exists=.env scripts/verify-web.js",
+    "start:hub-analytics": "node --env-file-if-exists=.env services/hub-analytics/src/cli.js run",
+    "replay:hubs": "node --env-file-if-exists=.env services/hub-analytics/src/cli.js replay",
+    "verify:acceptance": "node --env-file-if-exists=.env scripts/verify-acceptance.js",
+    "verify:compose": "python3 scripts/verify-compose.py",
+    "verify:all": "node scripts/verify-all.js"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "joi": "^18.2.9",
+    "kafkajs": "2.2.4",
+    "mongodb": "7.7.0"
+  }
+}

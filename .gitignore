@@ -1,0 +1,21 @@
+# Configuración local; nunca guardar credenciales reales.
+/.env
+
+# Dependencias y datos locales de RutaSur.
+/node_modules/
+/.data/
+/logs/
+# Interfaz Next.js local.
+/apps/web/node_modules/
+/apps/web/.next/
+/apps/web/.env*
+
+# Archivos temporales y configuración personal.
+**/node_modules/
+**/.env
+**/.env.local
+**/.env.*.local
+__pycache__/
+*.pyc
+.DS_Store
+*:Zone.Identifier

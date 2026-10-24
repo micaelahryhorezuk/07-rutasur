@@ -1,0 +1,10 @@
+"use client";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+const links = [{ href: "/", title: "Torre de control", icon: "◫" }, { href: "/analitica", title: "Analítica", icon: "▥" }, { href: "/tracking", title: "Tracking público", icon: "↗" }, { href: "/demo", title: "Panel de demo", icon: "▷" }];
+export default function Shell({ children }) {
+  const path = usePathname();
+  const tracking = path.startsWith("/tracking");
+  if (tracking) return <div className="public-shell"><header className="public-header"><Link className="brand" href="/tracking"><span className="brand-mark">r<span>↗</span></span>RutaSur<span className="brand-light">/ seguimiento</span></Link><Link className="text-link" href="/">Acceso operativo ↗</Link></header><main id="contenido" className="public-main">{children}</main><footer className="public-footer">RutaSur <span>Tu envío, un poco más cerca.</span></footer></div>;
+  return <div className="app-shell"><aside className="sidebar"><Link href="/" className="brand"><span className="brand-mark">r<span>↗</span></span>RutaSur</Link><div className="sidebar-caption">CENTRO DE OPERACIONES</div><nav aria-label="Navegación principal">{links.map(item => <Link key={item.href} href={item.href} className={(item.href === "/" ? path === "/" || path.startsWith("/envios/") : path.startsWith(item.href)) ? "active" : ""}><span aria-hidden="true">{item.icon}</span>{item.title}</Link>)}</nav><div className="sidebar-footer"><span className="workspace-symbol">RS</span><div><strong>Operación local</strong><small>Última milla · Argentina</small></div></div></aside><div className="workspace"><div className="topbar"><span>Operaciones <span className="slash">/</span> Seguimiento de envíos</span><span className="environment">Entorno de práctica</span></div><main id="contenido" className="main">{children}</main><footer className="workspace-footer">RutaSur · Seguimiento de última milla<span>Programación Avanzada · TP 7</span></footer></div></div>;
+}
