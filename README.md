@@ -1,26 +1,81 @@
 # RutaSur: seguimiento de envíos orientado a eventos
 
-El TP tiene implementadas las ocho etapas: infraestructura, simulador, cinco consumidores base, interfaz con actualizaciones en vivo y el consumidor adicional del cuarto indicador histórico. Incluye pruebas de integración, replay y reconstrucción de vistas. Los puertos publicados se limitan a `127.0.0.1` para uso local.
+RutaSur es un operador ficticio de paquetería que necesita conocer el estado de sus envíos e intervenir antes de que fallen las entregas. Este TP implementa la historia del [enunciado de TP7](TP7_RutaSur_especificacion_del_caso_practico.pdf): seguimiento en vivo, reacciones independientes a fallos, alertas preventivas y analítica basada en eventos.
 
-Para iniciar el sistema completo y abrir la interfaz en `http://localhost:3000`:
+## Inicio rápido
+
+Desde la carpeta `rutasur-tp7`, con Docker Engine y Docker Compose v2 o posterior:
 
 ```bash
 docker compose --profile projector --profile business --profile sla --profile web --profile simulator --profile hubs up -d --build
 ```
 
-Para la defensa, seguir [el guion de demostración](docs/DEMO.md), que incorpora el consumidor de hubs durante la presentación. Los resultados y límites de las verificaciones están en [EVIDENCIAS.md](docs/EVIDENCIAS.md); el detalle de avance está en [PLAN.md](docs/PLAN.md).
+1. Abrir **http://localhost:3000**: la torre de control muestra los envíos del simulador continuo.
+2. Entrar a **`/demo`** para disparar escenarios y abrir el detalle o el tracking público del envío generado.
+3. Consultar **`/analitica`** y actualizar los indicadores para ver los resultados agregados.
 
-El arranque predeterminado sin perfiles levanta Apache Kafka en modo KRaft y MongoDB como replica set de un nodo. No requiere ZooKeeper ni credenciales.
+Este comando inicia todos los componentes, incluido el cuarto indicador. **Para la defensa, seguir [docs/DEMO.md](docs/DEMO.md)**: allí se incorpora ese indicador después de generar datos, para demostrar la lectura del histórico.
 
-## Requisitos previos
+## Cómo funciona
+
+```text
+Simulador → Kafka → consumidores independientes → MongoDB → Next.js
+                ↑              │                     │
+                └──────────────┘                     └─ change streams → SSE → navegador
+                    eventos derivados
+```
+
+- **Simulador:** reemplaza al depósito y a la aplicación del repartidor. Publica promesas y cambios de estado; no escribe directamente las pantallas.
+- **Kafka:** conserva los eventos y la posición de lectura de cada grupo. Un mismo evento puede activar varias reacciones sin llamadas directas entre consumidores.
+- **Consumidores Node.js:** el proyector construye las vistas; notificaciones, reprogramación y monitor de SLA publican eventos derivados; analítica mantiene agregados.
+- **MongoDB:** guarda las vistas de consulta y el estado auxiliar de los consumidores. Las vistas se pueden reconstruir a partir del histórico retenido en Kafka.
+- **Next.js:** consulta MongoDB, no Kafka. Para las pantallas en vivo, los change streams generan avisos SSE que provocan la actualización del navegador. La analítica se actualiza al consultar.
+
+El panel `/demo` es un control auxiliar: solicita al simulador que publique escenarios. No reemplaza la comunicación por Kafka entre los consumidores ni escribe las vistas.
+
+## Los cuatro casos de uso del PDF
+
+| Caso | Qué ocurre | Dónde comprobarlo |
+|---|---|---|
+| **CU1 · Ciclo de vida** | El proyector aplica los estados y mantiene un historial sin duplicados ni retrocesos por secuencias antiguas | Torre de control, detalle y tracking público |
+| **CU2 · Entrega fallida** | Un `ENTREGA_FALLIDA` dispara, de forma independiente, un aviso simulado, una decisión de reprogramación y el agregado del fallo | Detalle y analítica |
+| **CU3 · Riesgo de SLA** | El monitor cruza estados y promesas y evalúa también el paso del tiempo para alertar antes del vencimiento | Cola de alertas y detalle |
+| **CU4 · Analítica y reprocesamiento** | Tres indicadores explican entregas y fallos; un grupo adicional calcula el tiempo medio en el hub leyendo el histórico y luego continúa en vivo | Analítica y paso 8 de la demo |
+
+El recorrido habitual es `CREADO → INGRESADO_HUB → CLASIFICADO → EN_REPARTO → ENTREGADO` o `ENTREGA_FALLIDA`. Una decisión de reprogramación no cambia por sí sola el estado: los eventos del siguiente intento corresponden al sistema de origen, representado por el simulador.
+
+### Por qué los servicios están separados
+
+Los cinco consumidores base son **proyector**, **notificaciones**, **reprogramación**, **monitor de SLA** y **analítica**, cada uno con su grupo. Detener notificaciones no detiene el tracking ni las otras reacciones; al reiniciarla, recupera sus mensajes pendientes. El sexto consumidor, **analítica de hubs**, se agrega para demostrar el reprocesamiento sin alterar los offsets de los cinco anteriores.
+
+La entrega es **al menos una vez**, con efectos idempotentes: Kafka puede volver a entregar un mensaje, pero los consumidores evitan aplicar de nuevo su efecto. No se promete una única publicación física entre Kafka y MongoDB. La clave `shipmentId` mantiene juntos los eventos de un envío dentro de cada topic; la secuencia y la versión de promesa permiten tratar duplicados, eventos antiguos y cruces entre topics.
+
+### Alcance y criterios de aceptación
+
+Se ejecuta localmente con Docker Compose. No incluye GPS, optimización de rutas, autenticación, correo/SMS real, alta disponibilidad ni pruebas formales de carga. Los puertos publicados se limitan a `127.0.0.1`.
+
+La aceptación del PDF exige tracking correcto, duplicados sin efecto, eventos inválidos en DLQ, reglas de fallos y SLA, recuperación tras una caída, indicadores contrastados con una semilla fija y reconstrucción de vistas. También exige arranque con un comando y menos de dos segundos entre evento y pantalla en el flujo continuo: las mediciones locales y sus límites están en la evidencia, no constituyen una garantía de producción.
+
+| Necesidad | Documento |
+|---|---|
+| Presentar los cuatro casos y los fallos provocados en unos 15 minutos | [Guion de demo](docs/DEMO.md) |
+| Consultar esquemas, topics y decisiones ante ambigüedades del PDF | [Contratos](docs/CONTRATOS.md) |
+| Revisar resultados registrados y límites de las pruebas | [Evidencias](docs/EVIDENCIAS.md) |
+| Consultar el historial de implementación por etapas | [Plan](docs/PLAN.md) |
+
+## Configuración local
+
+El arranque sin perfiles (`docker compose up -d`) levanta **solo la infraestructura**: Kafka en modo KRaft y MongoDB como replica set de un nodo, más sus inicializadores. No requiere ZooKeeper ni credenciales. Para el sistema completo, usar el comando de inicio rápido.
+
+### Requisitos previos
 
 - Docker Engine con Docker Compose v2 o posterior.
 - Puertos locales `19092` (Kafka) y `27028` (MongoDB) libres, o valores alternativos en `.env`.
 - Acceso al registro de imágenes la primera vez que se descarguen las imágenes.
 
-## Iniciar
+### Iniciar solo la infraestructura
 
-Desde la raíz del workspace:
+Para iniciar solo la infraestructura, desde la raíz de `rutasur-tp7`:
 
 ```bash
 docker compose up -d
@@ -30,7 +85,7 @@ Compose inicia Kafka y MongoDB, espera sus healthchecks y ejecuta automáticamen
 
 Para usar otros puertos, copiar `.env.example` a `.env` y cambiar `KAFKA_EXTERNAL_PORT` o `MONGODB_EXTERNAL_PORT`. No agregar secretos a ese archivo.
 
-## Conexiones
+### Conexiones
 
 | Cliente | Dirección |
 |---|---|
@@ -40,6 +95,19 @@ Para usar otros puertos, copiar `.env.example` a `.env` y cambiar `KAFKA_EXTERNA
 | MongoDB desde otro contenedor de esta red Compose | `mongodb://mongo:27017/rutasur?replicaSet=rs0` |
 
 El cliente anfitrión de MongoDB usa `directConnection=true` porque la dirección anunciada por el replica set (`mongo:27017`) solo resuelve dentro de la red Docker. Desde contenedores se usa la URI con `replicaSet=rs0`, que permite change streams y transacciones.
+
+### Detener conservando datos
+
+```bash
+docker compose --profile projector --profile business --profile sla --profile web --profile simulator --profile hubs stop
+```
+
+Los datos permanecen en los volúmenes `rutasur-kafka-data` y `rutasur-mongo-data` del proyecto predeterminado. No ejecutar `docker compose down -v` salvo que se quiera borrar explícitamente esos datos.
+
+<details>
+<summary>Referencia técnica: operación, servicios, reglas y verificaciones</summary>
+
+Las cifras de verificación conservadas a continuación son resultados registrados durante el desarrollo, no ejecuciones nuevas de esta guía. Consultar [EVIDENCIAS.md](docs/EVIDENCIAS.md) para sus condiciones y límites.
 
 ## Salud, logs y topics
 
@@ -77,17 +145,9 @@ docker compose run --rm mongo-init
 
 Los topics tienen factor de replicación 1. Se usan tres particiones para los cinco topics de negocio; `envios.estados.dlq` usa una partición porque es de revisión manual. Las retenciones y `cleanup.policy` se inicializan según [docs/CONTRATOS.md](docs/CONTRATOS.md).
 
-## Detener conservando datos
+## Simulador y escenarios reproducibles
 
-```bash
-docker compose stop
-```
-
-Los datos permanecen en los volúmenes `rutasur-kafka-data` y `rutasur-mongo-data`. No ejecutar `docker compose down -v` salvo que se quiera borrar explícitamente esos datos.
-
-## Etapa 3: simulador
-
-El simulador es Node.js 22 y separa la generación determinista (`services/simulator/src/generator.js`) de KafkaJS (`services/simulator/src/kafka.js`). Los contratos JSON y el reloj reusable están en `packages/contracts`. Solo se publican eventos de origen: promesas y estados. Notificaciones y reprogramación se implementan en la etapa 5. El monitor de SLA se implementa en la etapa 6. Los consumidores derivan mensajes inválidos a la DLQ.
+El simulador usa Node.js 22 y separa la generación determinista (`services/simulator/src/generator.js`) de KafkaJS (`services/simulator/src/kafka.js`). Los contratos JSON y el reloj reusable están en `packages/contracts`. Solo publica eventos de origen: promesas y estados. Los servicios de negocio y el monitor producen los eventos derivados. Cada consumidor valida sus entradas y deriva los mensajes inválidos a la DLQ.
 
 Instalar y probar la lógica sin Kafka:
 
@@ -162,11 +222,11 @@ Publica feliz, ausente, demorado, tercer fallo, ráfaga de 500 envíos, duplicad
 - `docker compose config --quiet`, build de imagen y escenario feliz one-shot en Docker: pasaron.
 - El flujo continuo cerró KafkaJS correctamente con SIGINT.
 
-Estos resultados verifican generación y transporte. Las etapas 4 y 5 incorporan proyecciones Mongo, DLQ, notificaciones, reprogramación e indicadores. Las etapas 6 y 7 agregan el monitor de SLA y la interfaz Next.js.
+Estos resultados corresponden a la verificación de generación y transporte. Para la evidencia integral, consultar [docs/EVIDENCIAS.md](docs/EVIDENCIAS.md).
 
-## Etapa 4: proyector
+## Proyector: vistas del envío (CU1)
 
-El proyector es un proceso Node.js independiente, con grupo Kafka `proyector`. Consume estados, promesas, reprogramaciones, alertas y notificaciones; mantiene las colecciones `envios`, `alertas` y `notificaciones`. La etapa 5 agrega los productores de notificaciones y reprogramaciones; la etapa 6 agrega el productor de alertas SLA.
+El proyector es un proceso Node.js independiente, con grupo Kafka `proyector`. Consume estados, promesas, reprogramaciones, alertas y notificaciones; mantiene las colecciones `envios`, `alertas` y `notificaciones`. No decide la reprogramación ni detecta riesgos de SLA: refleja los resultados que publican los servicios responsables.
 
 Para ejecutarlo desde la máquina anfitriona, con Kafka y MongoDB activos:
 
@@ -180,9 +240,9 @@ Para ejecutarlo con Docker:
 docker compose --profile projector up -d --build projector
 ```
 
-El perfil es explícito: el arranque predeterminado todavía no inicia el sistema completo. El proyector confirma offsets después de persistir y guarda el efecto y su marcador de deduplicación en una transacción MongoDB. Descarta secuencias de estado menores o iguales a la última aplicada. Las promesas se ordenan por su propia versión porque llegan por un topic independiente. Un estado inválido va a `envios.estados.dlq` con payload original y motivo; luego continúa el consumo. Un fallo de persistencia detiene el proceso sin confirmar el mensaje fallido.
+El perfil es explícito: el comando sin perfiles inicia solo la infraestructura. El proyector confirma offsets después de persistir y guarda el efecto y su marcador de deduplicación en una transacción MongoDB. Descarta secuencias de estado menores o iguales a la última aplicada. Las promesas se ordenan por su propia versión porque llegan por un topic independiente. Un estado inválido va a `envios.estados.dlq` con payload original y motivo; luego continúa el consumo. Un fallo de persistencia detiene el proceso sin confirmar el mensaje fallido.
 
-Los índices incluyen identificadores únicos, búsquedas operativas y TTL de siete días para los marcadores. Los change streams están disponibles por el replica set; la conexión SSE a la interfaz sigue pendiente.
+Los índices incluyen identificadores únicos, búsquedas operativas y TTL de siete días para los marcadores. El replica set habilita los change streams que la interfaz transforma en avisos SSE.
 
 ### Verificación de integración
 
@@ -201,14 +261,9 @@ Crea grupos y generaciones temporales; elimina sus colecciones y marcadores al t
 npm run projector:replay -- --generation=reconstruccion-1 --cutoffs='{"envios.estados":[{"partition":0,"nextOffset":"100"}]}'
 ```
 
-El JSON anterior es solo un ejemplo de formato. Para una reconstrucción completa deben incluirse los cinco topics consumidos y todas sus particiones con datos, usando como `nextOffset` el extremo superior obtenido del broker antes de comenzar. El límite es exclusivo. El replay lee desde el inicio con un grupo nuevo y escribe en colecciones con sufijo de generación, sin sustituir las colecciones activas. No reutilizar la generación ni el grupo de una reconstrucción anterior. El cambio de vista activa queda pendiente.
+El JSON anterior es solo un ejemplo de formato. Para una reconstrucción completa deben incluirse los cinco topics consumidos y todas sus particiones con datos, usando como `nextOffset` el extremo superior obtenido del broker antes de comenzar. El límite es exclusivo. El replay lee desde el inicio con un grupo nuevo y escribe en colecciones con sufijo de generación, sin sustituir las colecciones activas. No reutilizar la generación ni el grupo de una reconstrucción anterior. Este replay no realiza el cambio de vista activa.
 
-### Estado al 23 de octubre de 2026
-
-Etapas 1 a 4 implementadas; integración del proyector verificada con Kafka y MongoDB locales. La etapa 5 se describe a continuación. La etapa 6 agrega el monitor de SLA. La etapa 7 agrega Next.js con SSE. Luego sigue la aceptación integral.
-
-
-## Etapa 5: reacciones independientes a fallos
+## Reacciones independientes a fallos (CU2)
 
 Tres procesos Node.js, cada uno con su grupo Kafka y su estado MongoDB:
 
@@ -262,9 +317,9 @@ Los estados auxiliares son `estado_notificaciones`, `estado_reprogramacion` y `e
 | Motivos de fallo | `motivos.AUSENTE`, `motivos.DIRECCION_INCORRECTA`, `motivos.RECHAZADO`, `motivos.ZONA_INACCESIBLE`; cuenta cada intento fallido |
 | Cumplimiento de SLA | `entregasEnPlazo / entregasConPromesa`; considera envíos entregados con promesa conocida, comparando `ocurridoEn <= venceEn` |
 
-Ante denominador cero, la interfaz futura debe mostrar sin datos. El estado por envío permite cruzar una promesa llegada después de la entrega y corregir por delta un cambio de versión de promesa. Las versiones antiguas se ignoran. Para una entrega sin `intento`, se usa el intento del último `EN_REPARTO`, o 1 si no hay dato previo. El cuarto indicador histórico y su replay se incorporan en la etapa 8.
+Ante denominador cero, la interfaz muestra sin datos. El estado por envío permite cruzar una promesa llegada después de la entrega y corregir por delta un cambio de versión de promesa. Las versiones antiguas se ignoran. Para una entrega sin `intento`, se usa el intento del último `EN_REPARTO`, o 1 si no hay dato previo. El cuarto indicador histórico se explica en la sección de analítica de hubs y replay.
 
-### Verificar la etapa
+### Verificar las reacciones a fallos
 
 ```bash
 npm test
@@ -275,10 +330,7 @@ La integración usa grupos nuevos y una base `rutasur_verify_business_<id>` excl
 
 Resultado verificado el 23 de octubre de 2026: 10 fallos, 10 decisiones de reprogramación, 11 avisos (10 fallos y 1 alerta), 7 primeros intentos con 1 entrega exitosa y 1 entrega fuera de plazo según la última promesa. También pasaron las pruebas locales y la construcción de las tres imágenes Docker. Los eventos quedan retenidos en Kafka; los grupos activos y la base `rutasur` no se modifican.
 
-**Etapas posteriores:** el monitor de SLA se documenta en la etapa 6; Next.js y SSE, en la etapa 7; el cuarto indicador y la demo integral, en la etapa 8. Todas están implementadas.
-
-
-## Etapa 6: monitor de SLA
+## Monitor de riesgo de SLA (CU3)
 
 El monitor es un proceso Node.js separado con grupo `monitor-sla`. Consume `envios.estados` y `envios.promesas`, mantiene estado propio por envío y publica aperturas/cierres en `alertas.sla`. El proyector actualiza `alertas` y notificaciones registra un aviso por apertura.
 
@@ -326,10 +378,10 @@ Resultado verificado el 23 de octubre de 2026: pruebas locales, integración com
 
 El verificador usa una base temporal `rutasur_verify_sla_<id>`, grupos aislados y tres procesos reales: monitor, proyector y notificaciones. Verifica las cuatro reglas/prioridades, duplicados, secuencias antiguas, cruces entre topics, promesa versionada, evaluación sin eventos, recuperación del reloj y caída después de la transacción antes de publicar. Comprueba seis aperturas, seis cierres y seis avisos de alerta; las fechas de apertura se conservan al cerrar. También prueba DLQ y consumo posterior. Limpia la base y los procesos temporales, conservando los eventos retenidos en Kafka.
 
-La interfaz Next.js y SSE se documenta en la etapa 7.
+La interfaz consulta las alertas proyectadas y las actualiza mediante SSE, como se explica a continuación.
 
 
-## Etapa 7: interfaz Next.js y SSE
+## Interfaz: torre de control, tracking y analítica
 
 Interfaz en `apps/web`, con Next.js App Router, React y el cliente MongoDB. Renderiza los datos en el servidor y aplica actualizaciones en vivo desde un componente cliente. No importa Kafka ni bibliotecas de los consumidores.
 
@@ -347,7 +399,7 @@ Abrir **http://localhost:3000**. `WEB_PORT` cambia el puerto publicado; siempre 
 | `/envios/<shipmentId>` | Detalle: historial, intentos, promesa, decisión de reprogramación, alertas y avisos |
 | `/tracking` | Búsqueda pública por código |
 | `/tracking/<shipmentId>` | Estado, fecha estimada e historial público, con actualización en vivo |
-| `/analitica` | Tres indicadores con filtros de zona, centro y fechas; motivos, zona/franja y detalle diario |
+| `/analitica` | Tres indicadores base y tiempo en el centro al activar hubs; filtros de zona, centro y fechas |
 | `/demo` | Ocho escenarios del simulador, con enlaces a los envíos publicados |
 
 Las pantallas usan datos reales de las proyecciones y presentan estados vacíos o errores recuperables cuando no hay datos o MongoDB no está disponible. La vista es adaptable a escritorio y móvil. Las capturas de QA se generan con datos sintéticos en una base temporal, nunca insertados en la base de operación.
@@ -378,7 +430,7 @@ Las consultas de analítica agregan **todo** el período filtrado sobre `metrica
 
 ### Control de escenarios
 
-El panel hace un `POST /api/demo` que valida el escenario y deriva el comando al control del simulador. Ese proceso usa los mismos generadores y productor de la etapa 3 y publica en Kafka. La interfaz no escribe proyecciones ni publica eventos directamente. Esta ruta de control implementa la excepción de demo documentada en el plan; los cinco consumidores siguen comunicándose por Kafka.
+El panel hace un `POST /api/demo` que valida el escenario y deriva el comando al control del simulador. Ese proceso usa los mismos generadores y productor del simulador y publica en Kafka. La interfaz no escribe proyecciones ni publica eventos directamente. Esta ruta de control implementa la excepción de demo documentada en el plan; los cinco consumidores siguen comunicándose por Kafka.
 
 La semilla es opcional; se genera una nueva si está vacía. El control toma como inicio el instante de su reloj simulado y devuelve `seed` y `startAt` junto a los IDs. Para reproducir exactamente esa corrida por CLI, usar ambos valores con `--seed` y `--start-at`. Se permiten feliz, ausente, demorado, tercer fallo, ráfaga, duplicado, fuera de orden y malformado. El flujo continuo se ejecuta con el comando/perfil del simulador.
 
@@ -406,10 +458,10 @@ También pasaron las pruebas locales, la compilación Next.js, la construcción 
 
 Playwright y Chromium son herramientas de QA temporales; no son dependencias de ejecución del proyecto. El verificador imprime si se usó navegador y los tiempos medidos. Las capturas se guardan en `/tmp/rutasur-control-desktop.png` y `/tmp/rutasur-control-mobile.png`.
 
-La etapa 8, documentada a continuación, agrega el cuarto indicador y la aceptación integral.
+El cuarto indicador demuestra la lectura del histórico con un grupo independiente, como se explica a continuación.
 
 
-## Etapa 8: histórico de hubs, replay y aceptación
+## Analítica de hubs, replay y aceptación (CU4)
 
 El consumidor adicional `services/hub-analytics` usa un **grupo nuevo**, `analitica-hubs`, sobre `envios.estados`. No reinicia ni modifica los grupos existentes. Se activa después de generar datos para demostrar que Kafka conserva el histórico:
 
@@ -452,7 +504,7 @@ npm run verify:all
 npm run verify:compose
 ```
 
-La primera orden ejecuta pruebas locales, compilación Next.js y las integraciones de proyector, reacciones, SLA, interfaz y aceptación. `verify:acceptance` también puede ejecutarse sola tras `npm run web:build`. Con `WEB_VERIFY_BROWSER_MODULE` y `PLAYWRIGHT_BROWSERS_PATH` configurados como en la etapa 7, incluye Chromium.
+La primera orden ejecuta pruebas locales, compilación Next.js y las integraciones de proyector, reacciones, SLA, interfaz y aceptación. `verify:acceptance` también puede ejecutarse sola tras `npm run web:build`. Con `WEB_VERIFY_BROWSER_MODULE` y `PLAYWRIGHT_BROWSERS_PATH` configurados como en la sección de verificación de la interfaz, incluye Chromium.
 
 La aceptación publica siete escenarios con semilla `tp7-aceptacion-v1` e inicio `2026-10-23T08:00:00.000Z`. Antes de las fases adicionales, el recuento manual esperado es:
 
@@ -476,3 +528,5 @@ Resultado de cierre: suite completa secuencial aprobada, aceptación con Chromiu
 El control del simulador avanza su reloj hasta el último instante publicado por un escenario, de modo que el siguiente escenario no empiece antes de los eventos que acaba de generar.
 
 El recorrido de defensa está en [docs/DEMO.md](docs/DEMO.md), y las pruebas y sus límites en [docs/EVIDENCIAS.md](docs/EVIDENCIAS.md).
+
+</details>
